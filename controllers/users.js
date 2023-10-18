@@ -1,63 +1,100 @@
 // eslint-disable-next-line import/no-extraneous-dependencies
-const { ValidationError, CastError } = require('mongoose').Error;
+const { ValidationError } = require('mongoose').Error;
+// eslint-disable-next-line import/no-extraneous-dependencies
+const bcrypt = require('bcrypt');
 const User = require('../models/user');
-const Codes = require('../utils/codeStatus');
+const generateToken = require('../utils/jwt');
 
-module.exports.createUser = (req, res) => {
-  const { name, about, avatar } = req.body;
-  User.create({ name, about, avatar })
-    .then((user) => res.status(Codes.CREATED).send({
+const NotFoundError = require('../errors/notFound');
+const BadRequestError = require('../errors/badRequest');
+const MongoDuplicateConflict = require('../errors/mongoDuplicate');
+const Statuses = require('../utils/codeStatus');
+
+const SAULT_ROUNDS = 10;
+
+module.exports.createUser = (req, res, next) => {
+  const {
+    name, about, avatar, email, password,
+  } = req.body;
+  bcrypt.hash(password, SAULT_ROUNDS)
+    .then((hash) => User.create({
+      name, about, avatar, email, password: hash,
+    }))
+    .then((user) => res.status(Statuses.CREATED).send({
       _id: user._id,
       name: user.name,
       about: user.about,
       avatar: user.avatar,
+      email: user.email,
     }))
     .catch((error) => {
-      if (error instanceof ValidationError) {
-        return res.status(Codes.BAD_REQUEST).send({ message: 'Неккоректные данные при создании пользователя' });
+      if (error.code === Statuses.MONGO_DUPLICATE) {
+        next(new MongoDuplicateConflict('Пользователь с таким email уже существует'));
+      } else if (error instanceof ValidationError) {
+        next(new BadRequestError('Некорректные данные при создании пользователя'));
+      } else {
+        next(error);
       }
-      return res.status(Codes.SERVER_ERROR).send({ message: 'Что-то не так с сервером' });
     });
 };
 
-module.exports.getUsers = (req, res) => {
+module.exports.login = (req, res, next) => {
+  const { email, password } = req.body;
+  return User.findUserByCredentials(email, password)
+    .then((user) => {
+      const token = generateToken({ _id: user._id });
+      res.cookie('jwt', token, {
+        maxAge: 3600000,
+        httpOnly: true,
+        sameSite: true,
+        secure: true,
+      });
+      return res.send({ token });
+    })
+    .catch(next);
+};
+
+module.exports.getUsers = (req, res, next) => {
   User.find({})
-    .then((users) => res.status(Codes.OK).send(users))
-    .catch(() => res.status(Codes.SERVER_ERROR).send({ message: 'Что-то не так с сервером' }));
+    .then((users) => res.status(Statuses.OK_REQUEST).send(users))
+    .catch(next);
 };
 
-module.exports.getUserById = (req, res) => {
-  User.findById(req.params.userId)
-    .orFail(new Error('NotFound'))
-    .then((user) => res.status(Codes.OK).send(user))
+const getUserById = (req, res, userData, next) => {
+  User.findById(userData)
+    .orFail(new NotFoundError('Пользователь по указанному _id не найден'))
+    .then((user) => res.status(Statuses.OK_REQUEST).send(user))
     .catch((error) => {
-      if (error.message === 'NotFound') {
-        return res.status(Codes.NOT_FOUND).send({ message: 'Пользователь по _id не найден' });
-      }
-      if (error instanceof CastError) {
-        return res.status(Codes.BAD_REQUEST).send({ message: 'Передан некорректный id' });
-      }
-      return res.status(Codes.SERVER_ERROR).send({ message: 'Что-то не так с сервером' });
+      next(error);
     });
 };
 
-const updateUser = (req, res, updateData) => {
+module.exports.getUser = (req, res, next) => {
+  const userData = req.params.userId;
+  getUserById(req, res, userData, next);
+};
+
+module.exports.getCurrentUserInfo = (req, res, next) => {
+  const userData = req.user._id;
+  getUserById(req, res, userData, next);
+};
+
+const updateUser = (req, res, updateData, next) => {
   User.findByIdAndUpdate(req.user._id, updateData, {
     new: true,
     runValidators: true,
   })
-    .orFail(new Error('NotFound'))
-    .then((user) => res.status(Codes.OK).send(user))
+    .orFail(new NotFoundError('Пользователь по указанному _id не найден'))
+    .then((user) => res.status(Statuses.OK_REQUEST).send(user))
     .catch((error) => {
-      if (error.message === 'NotFound') {
-        return res.status(Codes.NOT_FOUND).send({ message: 'Пользователь по _id не найден' });
-      }
       if (error instanceof ValidationError) {
-        return res.status(Codes.BAD_REQUEST).send({ message: 'Некорректные данные при обновлении профиля' });
+        next(new BadRequestError('Некорректные данные при обновлении данных профиля'));
+      } else {
+        next(error);
       }
-      return res.status(Codes.SERVER_ERROR).send({ message: 'Что-то не так с сервером' });
     });
 };
+
 module.exports.updateUserInfo = (req, res) => {
   const { name, about } = req.body;
   updateUser(req, res, { name, about });
