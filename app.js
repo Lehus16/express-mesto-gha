@@ -1,5 +1,4 @@
 /* eslint-disable import/no-extraneous-dependencies */
-/* eslint-disable import/no-unresolved */
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
