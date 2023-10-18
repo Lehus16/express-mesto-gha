@@ -4,7 +4,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cookieParser = require('cookie-parser');
 const { errors } = require('celebrate');
-const centralizedErrorHandler = require('./middlewares/errorHandler');
+const centralizedErrorHandler = require('./middlewares.js/errorHandler');
 const router = require('./routes/index');
 const NotFoundError = require('./errors/notFound');
 

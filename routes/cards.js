@@ -1,5 +1,5 @@
 const cardRouter = require('express').Router();
-const { creatingCardValidation, cardsIdValidation } = require('../middlewares/celebrateValidation');
+const { creatingCardValidation, cardsIdValidation } = require('../middlewares.js/celebrateValidation');
 const {
   getCards, createCard, deleteCard, likeCard, removeCardLike,
 } = require('../controllers/cards');
